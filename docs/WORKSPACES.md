@@ -1,6 +1,6 @@
-# PNR12 workspaces
+# PNR-FST workspaces
 
-A workspace is a directory that stores PNR12 records.
+A workspace is a directory that stores PNR-FST records.
 
 Use a stable path when work must continue after the current Python process ends.
 
@@ -74,7 +74,7 @@ The external location is required. If a backup restores the workspace and the an
 
 ## Concurrent writers
 
-PNR12 uses an operating-system file lock while it appends records. The Linux path uses `fcntl`. The Windows path uses `msvcrt`.
+PNR-FST uses an operating-system file lock while it appends records. The Linux path uses `fcntl`. The Windows path uses `msvcrt`.
 
 Do not copy or replace workspace files while a process is writing to them.
 

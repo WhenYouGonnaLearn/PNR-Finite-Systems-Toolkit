@@ -10,11 +10,11 @@ Each file defines a finite model and checks its own result.
 
 ## Simulations
 
-- `cellular_automaton.py` uses 32 states and runs `10**100` updates.
-- `traffic_network.py` uses 32 traffic-controller states and runs `10**80` ticks.
-- `contact_process.py` uses 27 contact-network states and runs `10**70` ticks.
-- `factory_line.py` uses 48 production-line states and runs `10**60` ticks.
-- `discrete_ecology.py` uses 48 bounded population states and runs `10**50` ticks.
+- `cellular_automaton.py` uses 32 states and asks for the state after `10**100` updates.
+- `traffic_network.py` uses 32 traffic-controller states and asks for the state after `10**80` updates.
+- `contact_process.py` uses 27 contact-network states and asks for the state after `10**70` updates.
+- `factory_line.py` uses 48 production-line states and asks for the state after `10**60` updates.
+- `discrete_ecology.py` uses 48 bounded population states and asks for the state after `10**50` updates.
 
 These files are programming models. They are not scientific forecasts.
 

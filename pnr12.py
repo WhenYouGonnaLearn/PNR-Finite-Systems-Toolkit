@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from collections import namedtuple
 from enum import Enum
 from pathlib import Path
-VERSION="1.3.0"; SCHEMA="pnr12.v1.3.0"; UNIT=0.0001; MAX_SEARCH=100_000; MAX_LEVELS=4096
+VERSION="1.3.0";SCHEMA="pnr12.v1.3.0";UNIT=1e-4;MAX_SEARCH=10**5;EXACT="EXACT_UNDER_ASSUMPTIONS";RETRACTED="RETRACTED_BY_COUNTEREXAMPLE";DEAD=("PROPOSED",RETRACTED)
 class PNRError(RuntimeError):
     def __init__(self,kind:str,**detail): super().__init__(kind); self.kind=kind; self.detail=detail
     def to_dict(self): return {"kind":self.kind,**self.detail}
@@ -88,8 +88,8 @@ class ProducedValue:
         if isinstance(o,ProducedValue):return (self.artifact_id,self.occurrence_id)==(o.artifact_id,o.occurrence_id)
         raise TypeError("tracked output is opaque; externalize it first")
     def __hash__(self):return hash((self.artifact_id,self.occurrence_id))
-class StandingKind(str,Enum):
-    EXACT_UNDER_ASSUMPTIONS="EXACT_UNDER_ASSUMPTIONS"; BOUNDED_UNDER_ASSUMPTIONS="BOUNDED_UNDER_ASSUMPTIONS"; CALIBRATED_EMPIRICAL="CALIBRATED_EMPIRICAL"; HELDOUT_EMPIRICAL="HELDOUT_EMPIRICAL"; SUPPORTED_HYPOTHESIS="SUPPORTED_HYPOTHESIS"; UNRESOLVED_EQUIVALENCE_CLASS="UNRESOLVED_EQUIVALENCE_CLASS"; TYPED_RESIDUAL="TYPED_RESIDUAL"; RETRACTED_BY_COUNTEREXAMPLE="RETRACTED_BY_COUNTEREXAMPLE"
+_ST=(EXACT,*"BOUNDED_UNDER_ASSUMPTIONS CALIBRATED_EMPIRICAL HELDOUT_EMPIRICAL SUPPORTED_HYPOTHESIS UNRESOLVED_EQUIVALENCE_CLASS TYPED_RESIDUAL".split(),RETRACTED)
+StandingKind=Enum("StandingKind",{x:x for x in _ST},type=str)
 ClaimStanding=namedtuple("ClaimStanding","claim_id kind scope assumptions evidence_roots dependency_status sufficiency_coverage verifier counterexample_status",defaults=["CLEAR"])
 @dataclass(frozen=True)
 class Experiment:
@@ -112,7 +112,7 @@ class Bridge:
             if not isinstance(q,list) or not q:raise Residual("BRIDGE_DOMAIN_REQUIRED")
             if len({digest(x) for x in q})!=len(q):raise Residual("BRIDGE_DOMAIN_DUPLICATE")
         if len({digest(x) for x in c})!=len(c):raise Residual("BRIDGE_CODOMAIN_DUPLICATE")
-        rows=[list(x) for x in itertools.product(*d)]; want={digest(x) for x in rows}
+        rows=[list(x) for x in itertools.product(*d)];want={digest(x) for x in rows};codes={digest(x) for x in c}
         if len(t)!=len(rows):raise Residual("BRIDGE_TABLE_NOT_TOTAL",expected=len(rows),actual=len(t))
         got={}
         for r in t:
@@ -120,7 +120,7 @@ class Bridge:
             k=digest(r["in"]);
             if k in got:raise Residual("BRIDGE_TABLE_NOT_FUNCTION")
             if k not in want:raise Residual("BRIDGE_TABLE_INPUT_OUTSIDE_DOMAIN")
-            if digest(r["out"]) not in {digest(x) for x in c}:raise Residual("BRIDGE_TABLE_OUTPUT_OUTSIDE_CODOMAIN")
+            if digest(r["out"]) not in codes:raise Residual("BRIDGE_TABLE_OUTPUT_OUTSIDE_CODOMAIN")
             got[k]=r["out"]
         return {"semantic_digest":digest(sorted(((k,digest(v)) for k,v in got.items()))),"rows":len(rows),"arity":len(d)}
     def check_language(self,p):return {"primitives":{n:self.check_primitive(s) for n,s in sorted(p.items())},"semantic_digest":digest({n:self.check_primitive(s) for n,s in sorted(p.items())})}
@@ -203,7 +203,6 @@ class PNR:
         raw=self.log.read_bytes()
         if len(raw)!=self._disk_size or raw!=b"".join(self._encode(o).encode() for o in self._occ):raise Residual("OCCURRENCE_DISK_STATE_DIVERGED")
     def fabric_digest(self):return digest([o.record_digest for o in self._occ])
-    digest=fabric_digest
     def _rebuild(self):
         self.languages={};self.artifacts={};self._certs={};self._artifact_certs={};self._outputs={};self.resource_used=0.0;self.resource_limit=float("inf");self._resource_contract_set=False
         self.assumptions=_FD();self.obligations=_FD();self.evidence=_FD();self.standings=_FD();self.constitutions=_FD();self.performed_experiments=_FD();self.authority={"max_risk":1.0,"allow_irreversible":True};self._authority_contract_set=False;self._falsified=set();self._retracted_claims=set();self._counterexample_ids=set()
@@ -225,7 +224,7 @@ class PNR:
         elif k=="ArtifactCommitted":self.artifacts[p["artifact_id"]]=GeneratedArtifact(p["artifact_id"],p["artifact_kind"],p["language_id"],_freeze(p["program"]),tuple(p.get("assumptions",[])),_freeze(p.get("validity_scope",{})),tuple(p.get("artifact_dependencies",[])),p["standing"],p["certificate_id"]);self._artifact_certs[p["certificate_id"]]=o
         elif k=="ArtifactProposed":self.artifacts[p["artifact_id"]]=GeneratedArtifact(p["artifact_id"],p["artifact_kind"],p["language_id"],_freeze(p["program"]),tuple(p.get("assumptions",[])),_freeze(p.get("validity_scope",{})),tuple(p.get("artifact_dependencies",[])))
         elif k=="ArtifactQualified":self.artifacts[p["artifact_id"]]=self.artifacts[p["artifact_id"]]._replace(standing=p["standing"],certificate_id=p["certificate_id"]);self._artifact_certs[p["certificate_id"]]=o
-        elif k=="ArtifactRetracted":self.artifacts[p["artifact_id"]]=self.artifacts[p["artifact_id"]]._replace(standing="RETRACTED_BY_COUNTEREXAMPLE",counterexamples=tuple(sorted(set((*self.artifacts[p["artifact_id"]].counterexamples,p["counterexample_id"])))))
+        elif k=="ArtifactRetracted":self.artifacts[p["artifact_id"]]=self.artifacts[p["artifact_id"]]._replace(standing=RETRACTED,counterexamples=tuple(sorted(set((*self.artifacts[p["artifact_id"]].counterexamples,p["counterexample_id"])))))
         elif k=="Output":self._outputs[o.occurrence_id]=(p["artifact_id"],_freeze(p["value"]),tuple(p.get("producer_artifacts",[])))
         elif k=="Assumption":dict.__setitem__(self.assumptions,p["assumption_id"],_freeze({"statement":p["statement"],"occurrence_id":o.occurrence_id}))
         elif k=="Obligation":dict.__setitem__(self.obligations,p["claim_id"],_freeze(p))
@@ -279,18 +278,18 @@ class PNR:
         for p in parents:
             if p in self.evidence:roots.update(self.evidence[p].get("lineage_roots",[]));prod.update(self.evidence[p].get("producer_artifacts",[]))
         for a in prod:
-            if a not in self.artifacts or self.artifacts[a].standing in ("PROPOSED","RETRACTED_BY_COUNTEREXAMPLE"):raise Residual("EVIDENCE_PRODUCER_NOT_EXECUTABLE",artifact_id=a)
+            if a not in self.artifacts or self.artifacts[a].standing in DEAD:raise Residual("EVIDENCE_PRODUCER_NOT_EXECUTABLE",artifact_id=a)
             roots.add("artifact:"+a)
         return self._append("Evidence",{"value":value,"dimensions":list(_ids(dimensions)),"lineage_roots":sorted(roots),"assertions":assertions or {},"parents":list(parents),"producer_artifacts":sorted(prod)},parents)
     def add_transform(self,parent_id,transform_kind,input_value,output_value,lossy,detail=None):
-        _reject(parent_id not in self.evidence,"UNKNOWN_EVIDENCE");e=self.evidence[parent_id];return self.add_evidence(output_value,e["dimensions"],e["lineage_roots"],parents=[parent_id],producer_artifacts=e.get("producer_artifacts",()))
+        _reject(parent_id not in self.evidence,"UNKNOWN_EVIDENCE");e=self.evidence[parent_id];_reject(not _same(input_value,e["value"]),"TRANSFORM_INPUT_MISMATCH");_reject(not isinstance(lossy,bool),"TRANSFORM_LOSSY_FLAG_INVALID");return self.add_evidence(output_value,e["dimensions"],e["lineage_roots"],{"_transform":{"kind":str(transform_kind),"input":input_value,"lossy":lossy,"detail":detail}},[parent_id],e.get("producer_artifacts",()))
     def _dep(self,eids):
         roots=[set(self.evidence[e]["lineage_roots"]) for e in eids]
         if any(not r for r in roots):return "UNROOTED"
         if len(roots)>1 and any(roots[i]&roots[j] for i in range(len(roots)) for j in range(i)):return "CORRELATED"
         return "INDEPENDENT"
     def _producer_cap(self,kind,eids):
-        rank={"EXACT_UNDER_ASSUMPTIONS":60,"BOUNDED_UNDER_ASSUMPTIONS":50,"HELDOUT_EMPIRICAL":40,"CALIBRATED_EMPIRICAL":30,"SUPPORTED_HYPOTHESIS":20,"UNRESOLVED_EQUIVALENCE_CLASS":10,"TYPED_RESIDUAL":0}
+        rank={EXACT:60,"BOUNDED_UNDER_ASSUMPTIONS":50,"HELDOUT_EMPIRICAL":40,"CALIBRATED_EMPIRICAL":30,"SUPPORTED_HYPOTHESIS":20,"UNRESOLVED_EQUIVALENCE_CLASS":10,"TYPED_RESIDUAL":0}
         deps=set().union(*(self._producer_deps(e) for e in eids))
         if not deps:return kind
         cap=min(rank.get(self.artifacts[a].standing,0) for a in deps);return StandingKind(max((k for k,v in rank.items() if v<=min(rank[kind.value],cap)),key=lambda k:rank[k]))
@@ -308,61 +307,59 @@ class PNR:
         kind=self._producer_cap(kind,eids);p={"claim_id":claim_id,"kind":kind.value,"scope":{},"assumptions":list(ass),"evidence_roots":list(eids),"dependency_status":dep,"sufficiency_coverage":coverage,"verifier":"PNR12"};self._append("Standing",p,eids);return self.standings[claim_id]
     def propose_constitution(self,predictions,assumptions=(),payload=None):
         ass=self._valid_assumptions(assumptions);cid="h_"+digest((predictions,ass,payload or {}))[:24]
-        if cid in self.constitutions:return cid
-        return_id=self._append("Constitution",{"constitution_id":cid,"predictions":predictions,"assumptions":list(ass),"payload":payload or {}});return cid
+        if cid not in self.constitutions:self._append("Constitution",{"constitution_id":cid,"predictions":predictions,"assumptions":list(ass),"payload":payload or {}})
+        return cid
     def active_constitutions(self):return [x for x in self.constitutions.values() if x["active"]]
-    def select_discriminating_experiment(self,experiments):
+    def select_discriminating_experiment(self,experiments,claim_id=None,value=1.0):
         ex=list(experiments)
         if any(not isinstance(e,Experiment) for e in ex):raise Residual("EXPERIMENT_OBJECT_REQUIRED")
         if len({e.experiment_id for e in ex})!=len(ex):raise Residual("EXPERIMENT_ID_DUPLICATE")
-        active=self.active_constitutions();best=None
+        active=[h for h in self.active_constitutions() if claim_id is None or claim_id in h.payload.get("relevant_claims",[claim_id])];best=None
         for e in ex:
             if e.risk>self.authority["max_risk"] or (e.irreversible and not self.authority["allow_irreversible"]):continue
             counts={}
             for h in active:counts[digest(h.predictions.get(e.experiment_id))]=counts.get(digest(h.predictions.get(e.experiment_id)),0)+1
-            score=len(active)-max(counts.values(),default=len(active));key=(score,-e.cost,e.experiment_id)
+            score=len(active)-max(counts.values(),default=len(active));key=(score*value-e.cost,-e.risk,e.experiment_id)
             if best is None or key>best[0]:best=(key,e)
         if best is None:raise Residual("NO_ADMISSIBLE_EXPERIMENT")
         return best[1]
-    def schedule_next(self,claim_id,experiments,protected_value=1.0):return {"experiment":self.select_discriminating_experiment(experiments)}
+    def schedule_next(self,claim_id,experiments,protected_value=1.0):return {"experiment":self.select_discriminating_experiment(experiments,claim_id,protected_value)}
     def perform_experiment(self,e,observed):
         self._check_seals();_reject(not isinstance(e,Experiment),"EXPERIMENT_OBJECT_REQUIRED");_reject(e.risk>self.authority["max_risk"] or (e.irreversible and not self.authority["allow_irreversible"]),"EXPERIMENT_NOT_AUTHORIZED");oid=self._append("Experiment",{"experiment_id":e.experiment_id,"observed":observed,"cost":e.cost,"risk":e.risk})
         for cid,h in list(self.constitutions.items()):
             if h["active"] and e.experiment_id in h.predictions and not _same(h.predictions[e.experiment_id],observed):self._append("ConstitutionExcluded",{"constitution_id":cid,"evidence_id":oid},[oid])
         return oid
-    def _language_table(self,parent,name,domains,codomain,training,heldout,assumptions=()):
+    def _language_table(self,parent,name,domains,codomain,evidence,check,assumptions=()):
         if parent not in self.languages or self.languages[parent].status!="QUALIFIED":raise Residual("QUALIFIED_PARENT_LANGUAGE_REQUIRED")
         ass=self._valid_assumptions(assumptions);domains=_clone(domains);codomain=_clone(codomain)
         if not isinstance(domains,list) or not domains or any(not isinstance(d,list) or not d for d in domains):raise Residual("LANGUAGE_DOMAIN_REQUIRED")
-        allrows=[list(x) for x in itertools.product(*domains)];rowkeys={digest(x) for x in allrows};codes={digest(x) for x in codomain};known={}
-        for e in [*training,*heldout]:
+        tested=math.prod(map(len,domains));_reject(tested>MAX_SEARCH,"LANGUAGE_SEARCH_APERTURE_EXCEEDED",candidates=tested,limit=MAX_SEARCH);allrows=[list(x) for x in itertools.product(*domains)];rowkeys={digest(x) for x in allrows};codes={digest(x) for x in codomain};known={}
+        for e in [*evidence,*check]:
             if not isinstance(e,dict) or not isinstance(e.get("in"),list) or "out" not in e:raise Residual("LANGUAGE_EVIDENCE_MALFORMED")
             k=digest(e["in"])
             if k not in rowkeys:raise Residual("LANGUAGE_EVIDENCE_INPUT_OUTSIDE_DOMAIN")
             if digest(e["out"]) not in codes:raise Residual("LANGUAGE_EVIDENCE_OUTPUT_OUTSIDE_CODOMAIN")
             if k in known and not _same(known[k],e["out"]):raise Residual("LANGUAGE_EVIDENCE_CONFLICT")
             known[k]=_clone(e["out"])
-        candidates=len(codomain)**len(allrows)
-        if candidates>MAX_SEARCH:raise Residual("LANGUAGE_SEARCH_APERTURE_EXCEEDED",candidates=candidates,limit=MAX_SEARCH)
-        self.charge(candidates*UNIT,"bounded_language_search",key="langsearch:"+digest((parent,name,domains,codomain,training,heldout))[:24])
-        if len(known)!=len(allrows):raise Residual("LANGUAGE_UNDERDETERMINED")
+        self.charge(tested*UNIT,"finite_table_check",key="langcheck:"+digest((parent,name,domains,codomain,evidence,check))[:24])
+        if len(known)!=tested:raise Residual("LANGUAGE_UNDERDETERMINED")
         table=[{"in":r,"out":known[digest(r)]} for r in allrows];spec={"kind":"finite_table","domains":domains,"codomain":codomain,"table":table};pr=dict(self.languages[parent].primitives);pr[name]=spec;receipt=self.bridge.check_language(pr);lid="l_"+digest((parent,name,spec,ass))[:24]
         if lid in self.languages:
             if self.languages[lid].status=="RETRACTED":raise Residual("LANGUAGE_REALIZATION_ALREADY_EXISTS",language_id=lid,status="RETRACTED")
-            return {"language_id":lid,"tested":candidates}
-        cid="c_"+digest(receipt)[:24];self._append("LanguageCommitted",{"language_id":lid,"parent_language_id":parent,"primitives":pr,"generated_primitives":[*self.languages[parent].generated_primitives,name],"certificate_id":cid,"receipt":receipt,"assumptions":list(ass),"validity_scope":{},"artifact_dependencies":[]});return {"language_id":lid,"tested":candidates}
-    def generate_finite_extension(self,parent_id,new_name,domains,codomain,training,heldout,*,assumptions=()):return self._language_table(parent_id,new_name,domains,codomain,training,heldout,assumptions)
-    def generate_boolean_extension(self,parent_id,new_name,arity,training,heldout,*,assumptions=()):return self._language_table(parent_id,new_name,[[False,True] for _ in range(arity)],[False,True],training,heldout,assumptions)
+            return {"language_id":lid,"tested":tested}
+        cid="c_"+digest(receipt)[:24];self._append("LanguageCommitted",{"language_id":lid,"parent_language_id":parent,"primitives":pr,"generated_primitives":[*self.languages[parent].generated_primitives,name],"certificate_id":cid,"receipt":receipt,"assumptions":list(ass),"validity_scope":{},"artifact_dependencies":[]});return {"language_id":lid,"tested":tested}
+    def generate_finite_extension(self,parent_id,new_name,domains,codomain,evidence,check,*,assumptions=()):return self._language_table(parent_id,new_name,domains,codomain,evidence,check,assumptions)
+    def generate_boolean_extension(self,parent_id,new_name,arity,evidence,check,*,assumptions=()):return self._language_table(parent_id,new_name,[[False,True] for _ in range(arity)],[False,True],evidence,check,assumptions)
     def extend_language(self,*a,**k):raise Residual("DIRECT_LANGUAGE_COMMIT_NOT_PUBLIC")
     def _artifact(self,kind,language,program,standing,*,assumptions=(),scope=None,deps=(),identity=None):
         _reject(language not in self.languages or self.languages[language].status!="QUALIFIED","QUALIFIED_LANGUAGE_REQUIRED");ass=self._valid_assumptions(assumptions);deps=_ids(deps,"artifact_dependencies")
         for d in deps:_reject(d not in self.artifacts,"UNKNOWN_ARTIFACT_DEPENDENCY",artifact_id=d)
         aid="a_"+digest(identity if identity is not None else (kind,language,program,ass,scope or {},deps))[:24]
         if aid in self.artifacts:
-            if self.artifacts[aid].standing=="RETRACTED_BY_COUNTEREXAMPLE":raise Residual("ARTIFACT_REALIZATION_ALREADY_EXISTS",artifact_id=aid,standing="RETRACTED_BY_COUNTEREXAMPLE")
+            if self.artifacts[aid].standing==RETRACTED:raise Residual("ARTIFACT_REALIZATION_ALREADY_EXISTS",artifact_id=aid,standing=RETRACTED)
             return aid
         cid="ac_"+digest((aid,program,standing))[:24];self._append("ArtifactCommitted",{"artifact_id":aid,"artifact_kind":kind,"language_id":language,"program":program,"assumptions":list(ass),"validity_scope":scope or {},"artifact_dependencies":list(deps),"standing":standing,"certificate_id":cid,"program_digest":digest(program)});return aid
-    def propose_sensor(self,pipeline,target_distinction,assumptions=(),validity_scope=None,claim_id=None,sensor_lineage_roots=(),**kw):
+    def propose_sensor(self,pipeline,target_distinction,assumptions=(),validity_scope=None):
         ass=self._valid_assumptions(assumptions);aid="a_"+digest(("compat_sensor",pipeline,target_distinction,ass))[:24]
         if aid not in self.artifacts:self._append("ArtifactProposed",{"artifact_id":aid,"artifact_kind":"SensorProcedure","language_id":"PNR12_BASE","program":{"kind":"pipeline","pipeline":pipeline,"target":target_distinction},"assumptions":list(ass),"validity_scope":validity_scope or {},"artifact_dependencies":[]})
         return aid
@@ -389,9 +386,9 @@ class PNR:
             if not _same(self.bridge.evaluate_primitive(spec,args),c["label"]):raise Residual("CALIBRATION_FAIL")
         program={"kind":"Sensor","primitive":primitive_name,"input_keys":list(input_keys),"calibration_digest":digest(calibration)};return self._artifact("Sensor",language_id,program,"CALIBRATED_EMPIRICAL",assumptions=assumptions,identity=("sensor",language_id,primitive_name,input_keys,calibration,assumptions))
     def _produce(self,aid,value,op,inputs=None):
-        _reject(aid not in self.artifacts or self.artifacts[aid].standing in ("PROPOSED","RETRACTED_BY_COUNTEREXAMPLE"),"ARTIFACT_NOT_EXECUTABLE",artifact_id=aid);oid=self._append("Output",{"artifact_id":aid,"value":value,"operation":op,"inputs":inputs,"producer_artifacts":[aid]});return ProducedValue(_freeze(_clone(value)),aid,oid)
+        _reject(aid not in self.artifacts or self.artifacts[aid].standing in DEAD,"ARTIFACT_NOT_EXECUTABLE",artifact_id=aid);oid=self._append("Output",{"artifact_id":aid,"value":value,"operation":op,"inputs":inputs,"producer_artifacts":[aid]});return ProducedValue(_freeze(_clone(value)),aid,oid)
     def run_sensor(self,aid,raw,context=None):
-        if aid not in self.artifacts or self.artifacts[aid].standing in ("PROPOSED","RETRACTED_BY_COUNTEREXAMPLE"):raise Residual("ARTIFACT_NOT_EXECUTABLE",artifact_id=aid)
+        if aid not in self.artifacts or self.artifacts[aid].standing in DEAD:raise Residual("ARTIFACT_NOT_EXECUTABLE",artifact_id=aid)
         a=self.artifacts[aid]
         try:
             if a.artifact_kind=="SensorProcedure":v=self._run_pipeline(a.program["pipeline"],raw)
@@ -407,7 +404,7 @@ class PNR:
     def externalize(self,value,*,reason):
         _reject(not isinstance(value,ProducedValue),"PRODUCED_VALUE_REQUIRED");_reject(not isinstance(reason,str) or not reason,"EXTERNALIZATION_REASON_REQUIRED");self._append("Externalization",{"source_occurrence_id":value.occurrence_id,"artifact_id":value.artifact_id,"reason":reason});return _clone(value._value)
     def observe(self,value,dimensions=(),roots=(),*,assertions=None,parents=(),produced_by=()):
-        """Record an observation and preserve producer dependencies."""
+        """Record an observation and preserve dependencies."""
         prod=set(_ids(produced_by,"produced_by"));raw=value
         if isinstance(value,ProducedValue):prod.add(value.artifact_id);parents=tuple(set((*parents,value.occurrence_id)));raw=value._value
         elif self._contains_produced(value):raise Residual("PRODUCED_VALUE_NESTING_REQUIRES_EXPLICIT_HANDLING")
@@ -423,7 +420,7 @@ class PNR:
     def extend(self,parent,name,domains,codomain,evidence,check):
         """Construct and verify a finite operation."""
         return self.generate_finite_extension(parent,name,domains,codomain,evidence,check)
-    def synthesize(self,*,kind,language="PNR12_BASE",candidates,build,qualify,scope=None,standing="EXACT_UNDER_ASSUMPTIONS",court="GENERIC_VERIFIER",assumptions=(),depends_on=()):
+    def synthesize(self,*,kind,language="PNR12_BASE",candidates,build,qualify,scope=None,standing=EXACT,court="GENERIC_VERIFIER",assumptions=(),depends_on=()):
         """Search bounded candidates and retain one independently verified program."""
         rejected=[]
         for i,c in enumerate(candidates):
@@ -437,7 +434,7 @@ class PNR:
         """Record a counterexample and invalidate dependent results."""
         return self.counterexample(counterexample_id,**scope)
     def synthesize_transfer(self,source_states,source_actions,low,high,target_states,target_actions,source_observations=None,target_observations=None):
-        _safe_keys(source_states,"source_states");_safe_keys(target_states,"target_states")
+        _safe_keys(source_states,"source_states");_safe_keys(target_states,"target_states");_safe_keys(source_actions,"source_actions");_safe_keys(target_actions,"target_actions");space=math.perm(len(target_states),len(source_states))*math.perm(len(target_actions),len(source_actions));_reject(space>MAX_SEARCH,"MORPHISM_SEARCH_APERTURE_EXCEEDED",candidates=space,limit=MAX_SEARCH);self.charge(space*UNIT,"transfer_search")
         for tauvals in itertools.permutations(target_states,len(source_states)):
             tau=dict(zip(source_states,tauvals))
             if source_observations and any(not _same(source_observations[s],target_observations[tau[s]]) for s in source_states):continue
@@ -448,7 +445,7 @@ class PNR:
                         if tau[s] not in high or omega[a] not in high[tau[s]] or not _same(high[tau[s]][omega[a]],tau[d]):ok=False;break
                     if not ok:break
                 if ok:
-                    aid=self._artifact("TransferMap","PNR12_BASE",{"tau":tau,"omega":omega},"EXACT_UNDER_ASSUMPTIONS");return {"artifact_id":aid,"tau":self._produce(aid,tau,"transfer_tau"),"omega":self._produce(aid,omega,"transfer_omega")}
+                    aid=self._artifact("TransferMap","PNR12_BASE",{"tau":tau,"omega":omega},EXACT);return {"artifact_id":aid,"tau":self._produce(aid,tau,"transfer_tau"),"omega":self._produce(aid,omega,"transfer_omega")}
         raise Residual("NO_LAWFUL_MORPHISM_IN_SEARCH_APERTURE")
     def _eval_ast(self,x,env,lang=None):
         if isinstance(x,(bool,int,float)):return x
@@ -459,15 +456,18 @@ class PNR:
         if op=="add":return a[0]+a[1]
         if op=="sub":return a[0]-a[1]
         raise Residual("AST_OP_UNSUPPORTED")
-    def synthesize_rewrite(self,source_expr,training,heldout,language_id="PNR12_BASE"):
+    def synthesize_rewrite(self,source_expr,examples,check,language_id="PNR12_BASE"):
         lang=self.languages[language_id];vars=sorted(self._vars(source_expr));atoms=[{"var":v} for v in vars];cands=[*atoms,*({"op":op,"args":[a,b]} for op in ("add","sub") for a in atoms for b in atoms)]
         for n in lang.generated_primitives:
             ar=len(lang.primitives[n]["domains"])
             if ar==1:cands += [{"call":n,"args":[a]} for a in atoms]
             elif ar==2:cands += [{"call":n,"args":[a,b]} for a in atoms for b in atoms]
+        def fits(r,cases):
+            try:return all(_same(self._eval_ast(r,c["env"],lang),c["expected"]) for c in cases)
+            except (Residual,TypeError,KeyError,IndexError):return False
         for r in cands:
-            if all(_same(self._eval_ast(r,c["env"],lang),c["expected"]) for c in [*training,*heldout]):
-                aid=self._artifact("Rewrite",language_id,{"replacement":r},"EXACT_UNDER_ASSUMPTIONS");return {"artifact_id":aid,"replacement":self._produce(aid,r,"rewrite")}
+            if fits(r,examples):
+                _reject(not fits(r,check),"REWRITE_HELDOUT_FAIL");aid=self._artifact("Rewrite",language_id,{"replacement":r},"HELDOUT_EMPIRICAL");return {"artifact_id":aid,"replacement":self._produce(aid,r,"rewrite")}
         raise Residual("NO_LAWFUL_MORPHISM_IN_SEARCH_APERTURE")
     def _vars(self,x):
         if isinstance(x,dict):
@@ -485,18 +485,11 @@ class PNR:
             receipt=self.bridge.check_language(dict(src.primitives));self._append("LanguageCommitted",{"language_id":lid,"parent_language_id":language_id,"primitives":dict(src.primitives),"generated_primitives":list(src.generated_primitives),"certificate_id":"c_"+digest(receipt)[:24],"receipt":receipt,"assumptions":list(src.assumptions),"validity_scope":target_scope,"artifact_dependencies":list(src.artifact_dependencies)})
         return lid
     def compile_generated_algorithm(self,language_id,primitive_name,max_steps):
-        _reject(isinstance(max_steps,bool) or not isinstance(max_steps,int) or max_steps<0,"STEP_HORIZON_INVALID");lang=self.languages[language_id];spec=lang.primitives[primitive_name];_reject(len(spec["domains"])!=1,"TRANSITION_PRIMITIVE_MUST_BE_UNARY");levels=max(1,max_steps.bit_length());_reject(levels>MAX_LEVELS,"LIFTING_APERTURE_EXCEEDED")
-        dom=_clone(spec["domains"][0]);keys={digest(x) for x in dom};tables=[];first={digest(x):self.bridge.evaluate_primitive(spec,[x]) for x in dom}
-        if any(digest(v) not in keys for v in first.values()):raise Residual("TRANSITION_NOT_ENDOMORPHISM")
-        tables=[first]
-        for _ in range(1,levels):prev=tables[-1];tables.append({digest(x):prev[digest(prev[digest(x)])] for x in dom})
-        c={"domain":dom,"tables":tables,"max_steps":max_steps};aid=self._artifact("GeneratedAlgorithm",language_id,{"primitive":primitive_name,"compiled":c},"EXACT_UNDER_ASSUMPTIONS",identity=("algorithm",language_id,primitive_name,max_steps));return {"artifact_id":aid,"levels":levels,"table_entries":sum(map(len,tables))}
+        _reject(isinstance(max_steps,bool) or not isinstance(max_steps,int) or max_steps<0,"STEP_HORIZON_INVALID");spec=self.languages[language_id].primitives[primitive_name];_reject(len(spec["domains"])!=1,"TRANSITION_PRIMITIVE_MUST_BE_UNARY");nxt={digest(r["in"][0]):_clone(r["out"]) for r in spec["table"]};_reject(any(digest(v) not in nxt for v in nxt.values()),"TRANSITION_NOT_ENDOMORPHISM");c={"next":nxt,"max_steps":max_steps};aid=self._artifact("GeneratedAlgorithm",language_id,{"primitive":primitive_name,"compiled":c},EXACT,identity=("algorithm",language_id,primitive_name,max_steps));return {"artifact_id":aid,"levels":1,"table_entries":len(nxt)}
     def run_generated_algorithm(self,aid,start,steps):
-        _reject(aid not in self.artifacts or self.artifacts[aid].standing in ("PROPOSED","RETRACTED_BY_COUNTEREXAMPLE"),"ARTIFACT_NOT_EXECUTABLE");c=self.artifacts[aid].program["compiled"];_reject(isinstance(steps,bool) or not isinstance(steps,int) or steps<0,"STEP_COUNT_INVALID");_reject(steps>c["max_steps"],"COMPILED_EXECUTOR_OUTSIDE_SCOPE");_reject(digest(start) not in {digest(x) for x in c["domain"]},"COMPILED_EXECUTOR_START_OUTSIDE_DOMAIN");x=_clone(start);n=steps;b=0
-        while n:
-            if n&1:x=_clone(c["tables"][b][digest(x)])
-            n>>=1;b+=1
-        return self._produce(aid,x,"generated_algorithm",[start,steps])
+        _reject(aid not in self.artifacts or self.artifacts[aid].standing in DEAD,"ARTIFACT_NOT_EXECUTABLE");c=self.artifacts[aid].program["compiled"];_reject(isinstance(steps,bool) or not isinstance(steps,int) or steps<0,"STEP_COUNT_INVALID");_reject(steps>c["max_steps"],"COMPILED_EXECUTOR_OUTSIDE_SCOPE");d=digest(start);_reject(d not in c["next"],"COMPILED_EXECUTOR_START_OUTSIDE_DOMAIN");seq=[];seen={};x=_clone(start)
+        while (d:=digest(x)) not in seen:seen[d]=len(seq);seq.append(x);x=c["next"][d]
+        k=seen[d];v=seq[steps] if steps<len(seq) else seq[k+(steps-k)%(len(seq)-k)];return self._produce(aid,v,"generated_algorithm",[start,steps])
     def execute(self,artifact_id,*args,**kwargs):
         a=self.artifacts[artifact_id]
         if a.artifact_kind in ("Sensor","SensorProcedure"):return self.run_sensor(artifact_id,*args,**kwargs)
@@ -507,7 +500,7 @@ class PNR:
         for p in candidates:
             try:checks=self._verify_proof(p,context,self.languages[language_id])
             except Residual as e:rejected.append(e.kind);continue
-            aid=self._artifact("ProofProgram",language_id,p,"EXACT_UNDER_ASSUMPTIONS");return {"artifact_id":aid,"checks":checks}
+            aid=self._artifact("ProofProgram",language_id,p,EXACT);return {"artifact_id":aid,"checks":checks}
         raise Residual("NO_LAWFUL_MORPHISM_IN_SEARCH_APERTURE",rejected=rejected)
     def _verify_proof(self,p,ctx,lang):
         clauses=p.get("clauses") if isinstance(p,dict) and p.get("kind")=="ProofProgram" else None
@@ -532,6 +525,7 @@ class PNR:
         if lid not in self.languages:self._append("LanguageCommitted",{"language_id":lid,"parent_language_id":"PNR12_BASE","primitives":pr,"generated_primitives":[n],"certificate_id":"c_"+digest(r)[:24],"receipt":r,"assumptions":[],"validity_scope":{"source":"verified_transition"},"artifact_dependencies":[]})
         return self.compile_generated_algorithm(lid,n,max_steps)
     def optimize_finite_machine(self,states,observations,transitions,*,reference_observations=None,reference_transitions=None,model_evidence_id=None,reference_evidence_id=None,model_observation_evidence_id=None,reference_observation_evidence_id=None,action,max_steps):
+        _safe_keys(states,"states")
         for eid,val in ((model_evidence_id,transitions),(reference_evidence_id,reference_transitions),(model_observation_evidence_id,observations),(reference_observation_evidence_id,reference_observations)):
             if eid and not _same(self.evidence[eid]["value"],val):raise Residual("OPTIMIZER_EVIDENCE_VALUE_MISMATCH")
         groups={};
@@ -568,7 +562,7 @@ class PNR:
         for lid,l in self.languages.items():
             if l.status=="QUALIFIED":self.bridge.check_language(dict(l.primitives))
         for aid,a in self.artifacts.items():
-            if a.standing not in ("PROPOSED","RETRACTED_BY_COUNTEREXAMPLE"):
+            if a.standing not in DEAD:
                 if a.language_id not in self.languages or self.languages[a.language_id].status!="QUALIFIED":raise Residual("AUDIT_LIVE_ARTIFACT_LANGUAGE_NOT_QUALIFIED")
                 if a.certificate_id not in self._artifact_certs:raise Residual("AUDIT_ARTIFACT_CERTIFICATE_INVALID")
                 cert=self._artifact_certs[a.certificate_id]
@@ -577,5 +571,4 @@ class PNR:
     def snapshot(self):
         a=self.audit();return {"schema":SCHEMA,"version":VERSION,"fabric_digest":a["fabric_digest"],"occurrences":len(self._occ),"resource_used":self.resource_used,"resource_limit":self.resource_limit,"languages":{k:{"status":v.status,"parent":v.parent_language_id,"generated":list(v.generated_primitives)} for k,v in self.languages.items()},"artifacts":{k:{"kind":v.artifact_kind,"language":v.language_id,"standing":v.standing} for k,v in self.artifacts.items()},"audit":"PASS"}
 PNR.add_operation=PNR.extend;PNR.compile_transition=PNR.compile_optimized_transition;PNR.run_transition=PNR.run_optimized_transition;PNR.reduce_machine=PNR.optimize_finite_machine;PNR.match_systems=PNR.synthesize_transfer;PNR.find_rewrite=PNR.synthesize_rewrite;PNR.search=PNR.synthesize
-Proto11Kernel=PNR
 __all__=["PNR","PNRError","Residual","ProposalLanguage","GeneratedArtifact","ProducedValue","ClaimStanding","StandingKind","Experiment","canonical","digest","VERSION","SCHEMA"]

@@ -1,24 +1,24 @@
-# PNR12 guide for language models and agents
+# PNR-FST guide for language models and agents
 
 This document is separate from the programmer guide.
 
-Use PNR12 for a subtask when you can convert that subtask into explicit finite data and a Python check. Finite data has a known set of possible values.
+Use PNR-FST for a subtask when you can convert that subtask into explicit finite data and a Python check. Finite data has a known set of possible values.
 
-A language model can still read source material, interpret requirements, choose a model, propose candidates, and decide what new evidence means. PNR12 can store and repeat the parts that are already explicit.
+A language model can still read source material, interpret requirements, choose a model, propose candidates, and decide what new evidence means. PNR-FST can store and repeat the parts that are already explicit.
 
 ## Good uses beside a model
 
-PNR12 can help a model with these jobs:
+PNR-FST can help a model with these jobs:
 
 - check a finite list of candidates with the same Python rules;
-- run a deterministic state update for a very large number of steps;
+- return the state after a very large number of deterministic updates;
 - merge duplicate states in a finite workflow;
 - match two finite processes that use different names;
 - save compact task state across process restarts;
 - keep dependencies between saved results;
 - invalidate dependent work after an input or assumption fails.
 
-PNR12 does not read arbitrary text or source code for the model. The surrounding system must convert the relevant part into finite data first.
+PNR-FST does not read arbitrary text or source code for the model. The surrounding system must convert the relevant part into finite data first.
 
 ## Operating pattern
 
@@ -46,7 +46,7 @@ Example:
 
 Create a transition table, candidate list, state machine, or set of test cases.
 
-Do this outside PNR12. The model or normal Python code can perform this step.
+Do this outside PNR-FST. The model or normal Python code can perform this step.
 
 ### 4. Use a deterministic check
 
@@ -67,14 +67,14 @@ See [examples/models/bounded_candidate_search.py](examples/models/bounded_candid
 
 ### 5. Move repeated finite work out of the model loop
 
-A long task can contain a small controller that repeats for many steps. Compile that controller once.
+A long task can contain a small controller with a finite update rule. Save that rule once, then ask for the state after a large number of updates.
 
 ```python
 program = p.compile_transition(transition, max_steps=10**18)
 value = p.run_transition(program["artifact_id"], start, 10**18)
 ```
 
-The model can inspect the start state, update rule, and final state without performing every intermediate update in tokens.
+The model can inspect the start state, update rule, and returned state without describing every intermediate update in tokens.
 
 See [examples/models/long_horizon_inner_loop.py](examples/models/long_horizon_inner_loop.py).
 
@@ -108,10 +108,10 @@ The [durable job example](examples/models/durable_job.py) uses two Python proces
 
 ## Example set
 
-| Example | Input from the model or surrounding code | PNR12 task |
+| Example | Input from the model or surrounding code | PNR-FST task |
 | --- | --- | --- |
 | [bounded_candidate_search.py](examples/models/bounded_candidate_search.py) | ordered configuration candidates | return the first candidate that passes the Python check |
-| [long_horizon_inner_loop.py](examples/models/long_horizon_inner_loop.py) | finite workflow state and update rule | run `10**18` workflow updates |
+| [long_horizon_inner_loop.py](examples/models/long_horizon_inner_loop.py) | finite workflow state and update rule | return the workflow state after `10**18` updates |
 | [state_reduction.py](examples/models/state_reduction.py) | workflow states, outputs, and transitions | merge duplicate states |
 | [structural_match.py](examples/models/structural_match.py) | two finite process models | find an exact rename between them |
 | [dependency_invalidation.py](examples/models/dependency_invalidation.py) | source facts and dependent checks | reject dependent work after a source fact fails |
@@ -123,9 +123,9 @@ A long-running agent usually has two different kinds of state.
 
 External state includes source files, messages, tool results, user goals, and new observations. Keep this state in the agent system.
 
-Finite task state can include phases, counters, test status, retry state, selected candidates, and dependency links. PNR12 can store and operate on this state when the possible values are explicit.
+Finite task state can include phases, counters, test status, retry state, selected candidates, and dependency links. PNR-FST can store and operate on this state when the possible values are explicit.
 
-Do not convert a large task into a huge finite table only to use PNR12. Use it for the compact part that you can state and check with explicit rules.
+Do not convert a large task into a huge finite table only to use PNR-FST. Use it for the compact part that you can state and check with explicit rules.
 
 ## Failure handling
 
@@ -149,4 +149,4 @@ Reorder the candidate list before bounded search.
 
 Change one saved assumption before the durable job resumes.
 
-These changes show which part of the task PNR12 checks and which part remains the responsibility of the surrounding system.
+These changes show which part of the task PNR-FST checks and which part remains the responsibility of the surrounding system.

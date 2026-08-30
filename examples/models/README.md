@@ -2,10 +2,10 @@
 
 These examples show small finite tasks that can run beside a language model or agent.
 
-The surrounding system selects the task data. PNR12 checks or repeats the explicit finite part.
+The surrounding system selects the task data. PNR-FST checks or repeats the explicit finite part.
 
 - `bounded_candidate_search.py` checks an ordered list of configuration candidates.
-- `long_horizon_inner_loop.py` runs a finite workflow controller for `10**18` steps.
+- `long_horizon_inner_loop.py` asks for the workflow state after `10**18` updates.
 - `state_reduction.py` merges duplicate states in a generated workflow.
 - `structural_match.py` matches two finite processes by transition structure.
 - `dependency_invalidation.py` rejects dependent work after a saved assumption fails.

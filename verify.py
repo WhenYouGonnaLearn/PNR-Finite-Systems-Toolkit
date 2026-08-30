@@ -1,4 +1,4 @@
-"""Run the release checks for PNR12 1.3.0."""
+"""Run the release checks for PNR-FST 1.3.0."""
 from __future__ import annotations
 import argparse
 import ast
@@ -10,6 +10,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent
 PROTO4_LINES = 966
 PROTO4_BYTES = 64272
+POSTED_LINES = 581
+POSTED_BYTES = 56179
+POSTED_EXPANDED = 64257
 BANNED_TERMS = (
     "occurrence fabric", "court", "courts", "constitution", "constitutions",
     "standing", "aperture", "apertures", "fibre", "fibres", "genesis",
@@ -83,6 +86,8 @@ def main() -> int:
     normalized = (ast.unparse(ast.parse(text)) + "\n").encode()
     if len(normalized) >= PROTO4_BYTES:
         raise SystemExit(f"expanded source size failed: {len(normalized)} bytes")
+    if lines > POSTED_LINES or len(source) > POSTED_BYTES or len(normalized) > POSTED_EXPANDED:
+        raise SystemExit("core grew beyond the posted 1.3.0 build")
 
     check_public_text()
     check_links()
@@ -93,11 +98,13 @@ def main() -> int:
         if "__pycache__" not in path.parts
     ]
     run("-m", "py_compile", *py_files)
-    run("-m", "unittest", "test_pnr12", "test_attack")
-
-    if not args.quick:
-        run("stress.py")
-        run("verify_examples.py")
+    if args.quick:
+        run("-m", "unittest", "test_pnr12", "test_attack")
+    else:
+        cmds = [("-m", "unittest", "test_pnr12", "test_attack"), ("stress.py",), ("verify_examples.py", "--group", "programmers"), ("verify_examples.py", "--group", "models")]
+        procs = [subprocess.Popen([sys.executable, *cmd], cwd=ROOT) for cmd in cmds]
+        if any(proc.wait() for proc in procs):
+            raise SystemExit("release check failed")
 
     mode = "quick" if args.quick else "full"
     print(

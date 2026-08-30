@@ -371,9 +371,12 @@ class PNR12Tests(unittest.TestCase):
         self.assertIn("PROOF_PROGRAM_EMPTY", err.detail["rejected"])
         self.assertEqual(len(p.artifacts), before)
 
-    def test_30_finite_language_search_is_explicitly_bounded(self):
+    def test_30_finite_language_work_is_bounded_by_rows_not_imaginary_candidates(self):
         p = runtime()
-        self.residual("LANGUAGE_SEARCH_APERTURE_EXCEEDED", lambda: p.generate_boolean_extension("PNR12_BASE", "five_bit", 5, [], []))
+        rows = [{"in": [bool((i >> b) & 1) for b in range(5)], "out": bool(i & 1)} for i in range(32)]
+        g = p.generate_boolean_extension("PNR12_BASE", "five_bit", 5, rows[:-1], rows[-1:])
+        self.assertEqual(g["tested"], 32)
+        self.residual("LANGUAGE_SEARCH_APERTURE_EXCEEDED", lambda: p.generate_boolean_extension("PNR12_BASE", "too_large", 17, [], []))
 
     def test_31_optimizer_cannot_use_unrelated_evidence_as_independent_receipts(self):
         p = runtime()

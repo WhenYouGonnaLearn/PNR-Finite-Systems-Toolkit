@@ -1,10 +1,10 @@
-# PNR12
+# PNR-FST
 
-PNR12 is a small Python toolkit for finite models.
+PNR-FST is a small Python toolkit for explicit finite systems.
 
-A finite model has a known set of states, inputs, actions, or candidates. PNR12 stores these items in a workspace and provides tools that operate on them.
+A finite model has a known set of states, inputs, actions, or candidates. PNR-FST stores these items in a workspace and provides tools that operate on them.
 
-The package has one Python module and one workspace directory.
+The package has one Python module, `pnr12`, and one workspace directory.
 
 ```text
 finite model
@@ -20,7 +20,7 @@ saved result
     +--> invalidate dependent work if an input changes
 ```
 
-PNR12 is a good fit when you can write the important part of a problem as explicit finite data. It can help with repeated state updates, finite machine reduction, exact structure matching, small expression searches, candidate checks, and persistent task state.
+PNR-FST is a good fit when you can write the important part of a problem as explicit finite data. It can help with repeated state updates, finite machine reduction, exact structure matching, small expression searches, candidate checks, and persistent task state.
 
 Use another tool for continuous numerical simulation, large matrix computation, unrestricted SAT or SMT, statistical learning, symbolic algebra, or open-ended text interpretation.
 
@@ -30,11 +30,11 @@ Use another tool for continuous numerical simulation, large matrix computation, 
 python -m pip install .
 ```
 
-PNR12 requires Python 3.11 or later. The runtime uses only the Python standard library.
+PNR-FST requires Python 3.11 or later. The runtime uses only the Python standard library.
 
 ## Quick example
 
-This example uses a traffic controller with two queues. The full state has 32 possible values. The code builds the complete transition table once. PNR12 then runs the controller for `10**80` ticks.
+This example uses a traffic controller with two queues. The full state has 32 possible values. The code builds the complete transition table once. PNR-FST returns the controller state after `10**80` updates.
 
 ```python
 from itertools import product
@@ -90,7 +90,7 @@ The repository includes executable examples. Each example has a small model and 
 
 ### Simulations
 
-| Experiment | Model size | Default horizon | Main control |
+| Experiment | Model size | Requested update count | Main control |
 | --- | ---: | ---: | --- |
 | [Cellular automaton](examples/programmers/cellular_automaton.py) | 32 states | `10**100` | row width and rule |
 | [Traffic controller](examples/programmers/traffic_network.py) | 32 states | `10**80` | queue limit and signal rule |
@@ -122,7 +122,7 @@ Release checks and tested limits are in [VERIFY.md](VERIFY.md).
 
 ## Workspace
 
-`PNR(path)` opens or creates a workspace directory. PNR12 reads the saved records when you open the workspace again. `audit()` checks the saved record chain and active dependency links.
+`PNR(path)` opens or creates a workspace directory. PNR-FST reads the saved records when you open the workspace again. `audit()` checks the saved record chain and active dependency links.
 
 ```python
 from pnr12 import PNR

@@ -1,6 +1,6 @@
-# PNR12 for programmers
+# PNR-FST for programmers
 
-PNR12 works on explicit finite data.
+PNR-FST works on explicit finite data.
 
 Start with the smallest model that can answer your question. A good model keeps every difference that can change the answer. It removes details that cannot change the answer.
 
@@ -17,7 +17,7 @@ The full game or application can contain much more data. Do not include that dat
 1. List the possible states, inputs, actions, or candidates.
 2. Write the update rule or check as normal Python code.
 3. Build the finite table or candidate list.
-4. Run one PNR12 tool on that data.
+4. Run one PNR-FST tool on that data.
 5. Save the workspace if later work depends on the result.
 6. Use `audit()` when you reopen the workspace.
 
@@ -47,7 +47,7 @@ assert p.audit()["status"] == "PASS"
 
 This method stores a complete finite function.
 
-The input rows must cover every permitted input combination. PNR12 checks the rows and stores the function. It does not infer missing rows.
+The input rows must cover every permitted input combination. PNR-FST checks the rows and stores the function. It does not infer missing rows.
 
 ```python
 rows = [
@@ -72,7 +72,7 @@ op = p.add_operation(
 
 Use these methods for repeated deterministic state updates.
 
-If one update is `f(x)`, the compiled program stores jumps for 1, 2, 4, 8, 16, and more updates. PNR12 combines these jumps to reach a large step count.
+The compiled program stores the one-step update. When you run it, PNR-FST follows states until a state repeats. It then uses the cycle length to answer a large step count without replaying every update.
 
 ```python
 program = p.compile_transition(transition, max_steps=10**15)
@@ -88,7 +88,7 @@ This method merges finite machine states that have the same output and the same 
 
 Use it when an implementation has several internal states with the same output and the same future behavior for your current question.
 
-The result reports the number of reduced states in `state_count`. The `state_assignment` dictionary assigns each original state to one reduced state. The `program_id` value identifies the saved program that can run the reduced machine for a long horizon.
+The result reports the number of reduced states in `state_count`. The `state_assignment` dictionary assigns each original state to one reduced state. The `program_id` value identifies the saved program for repeated updates with the selected `action`.
 
 ### `match_systems()`
 
@@ -110,7 +110,7 @@ This is a small search tool. It is not a computer algebra system.
 
 This method checks a finite sequence of candidates.
 
-Your `build` function converts one candidate into an object. Your `qualify` function checks that object. PNR12 returns the first candidate that passes.
+Your `build` function converts one candidate into an object. Your `qualify` function checks that object. PNR-FST returns the first candidate that passes.
 
 Candidate order is part of the policy. Sort the candidates before the call if you want a specific preference order.
 
@@ -123,7 +123,7 @@ result = p.search(
 )
 ```
 
-The checker is your Python code. PNR12 cannot make an incomplete checker complete.
+The checker is your Python code. PNR-FST cannot make an incomplete checker complete.
 
 ### `externalize()`
 
@@ -137,11 +137,11 @@ plain_value = p.externalize(value, reason="return to caller")
 
 ## Simulation experiments
 
-Each simulation below uses a complete finite transition table. The model is small enough to inspect. The step count can be very large because the repeated transition is compiled.
+Each simulation below uses a complete finite transition table. The model is small enough to inspect. The requested update count can be very large because a finite deterministic update eventually repeats a state.
 
 ### Cellular automaton
 
-[examples/programmers/cellular_automaton.py](../examples/programmers/cellular_automaton.py) uses a circular Rule 30 row with 5 cells. The model has 32 states. The default run uses `10**100` updates.
+[examples/programmers/cellular_automaton.py](../examples/programmers/cellular_automaton.py) uses a circular Rule 30 row with 5 cells. The model has 32 states. The default query asks for the state after `10**100` updates.
 
 Change `WIDTH` to change the state count. The state count is `2**WIDTH`.
 
@@ -149,7 +149,7 @@ Change the rule function to test a different cellular rule.
 
 ### Traffic controller
 
-[examples/programmers/traffic_network.py](../examples/programmers/traffic_network.py) models two queues and one signal direction. The model has 32 states. The default run uses `10**80` ticks.
+[examples/programmers/traffic_network.py](../examples/programmers/traffic_network.py) models two queues and one signal direction. The model has 32 states. The default query asks for the state after `10**80` updates.
 
 Change `MAX_QUEUE` to change the queue capacity.
 
@@ -159,7 +159,7 @@ Change the signal switch rule to test a different controller.
 
 ### Contact process
 
-[examples/programmers/contact_process.py](../examples/programmers/contact_process.py) uses three sites in a ring. Each site is clear, active, or inactive. The model has 27 states. The default run uses `10**70` ticks.
+[examples/programmers/contact_process.py](../examples/programmers/contact_process.py) uses three sites in a ring. Each site is clear, active, or inactive. The model has 27 states. The default query asks for the state after `10**70` updates.
 
 This is a discrete contact model. It is not an epidemiology model.
 
@@ -169,7 +169,7 @@ Change the neighbor rule to test a different network process.
 
 ### Factory line
 
-[examples/programmers/factory_line.py](../examples/programmers/factory_line.py) models two machines, two buffers, and a two-tick input clock. The model has 48 states. The default run uses `10**60` ticks.
+[examples/programmers/factory_line.py](../examples/programmers/factory_line.py) models two machines, two buffers, and a two-tick input clock. The model has 48 states. The default query asks for the state after `10**60` updates.
 
 Change the buffer limits to change storage capacity.
 
@@ -179,7 +179,7 @@ Change the input clock to change the feed rate.
 
 ### Discrete ecology
 
-[examples/programmers/discrete_ecology.py](../examples/programmers/discrete_ecology.py) uses prey, predators, food, and season as bounded integer state values. The model has 48 states. The default run uses `10**50` ticks.
+[examples/programmers/discrete_ecology.py](../examples/programmers/discrete_ecology.py) uses prey, predators, food, and season as bounded integer state values. The model has 48 states. The default query asks for the state after `10**50` updates.
 
 This is a programming model. It is not a biological forecast.
 
@@ -209,8 +209,8 @@ See [WORKSPACES.md](WORKSPACES.md) for restart behavior, file locking, `audit()`
 
 ## Limits
 
-PNR12 does not interpret source code, images, logs, or natural language. Convert the part you need into explicit finite data first.
+PNR-FST does not interpret source code, images, logs, or natural language. Convert the part you need into explicit finite data first.
 
-PNR12 does not replace numerical solvers, SAT or SMT solvers, computer algebra systems, databases, or machine-learning libraries.
+PNR-FST does not replace numerical solvers, SAT or SMT solvers, computer algebra systems, databases, or machine-learning libraries.
 
-PNR12 is most useful when the finite part of a larger problem is important enough to save, check, repeat, or reuse.
+PNR-FST is most useful when the finite part of a larger problem is important enough to save, check, repeat, or reuse.
