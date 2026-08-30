@@ -1,0 +1,29 @@
+{
+  "version": "1.3.0",
+  "date": "2026-08-30",
+  "core": {
+    "lines": 581,
+    "bytes": 56179,
+    "sha256": "14af30e15b5feeefb9b71b061d8ef856974de4eb85d76dcbf348f1d7be833eec",
+    "expanded_bytes_python_3_13": 64257,
+    "size_reference_lines": 966,
+    "size_reference_bytes": 64272
+  },
+  "tests": {
+    "previous_release_tests": "60/60 PASS",
+    "additional_regressions": "10/10 PASS",
+    "deterministic_total": "70/70 PASS",
+    "persistence_random_cases": 300,
+    "transition_comparison_cases": 200,
+    "shipped_examples": 16,
+    "example_suite": "PASS",
+    "compile": "PASS"
+  },
+  "notes": [
+    "Programmer and model documentation are separate.",
+    "The example suite contains five finite simulations and eleven other workflow or tool examples.",
+    "Random checks cover the generated cases listed in VERIFY.md.",
+    "Windows locking is in CI but was not run in the Linux release build.",
+    "Release checks cover the package-supported finite input forms."
+  ]
+}
